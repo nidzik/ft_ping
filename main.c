@@ -97,19 +97,24 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	int i = 0;
 	int cnt = 0;
 	int ret = 0;
-	char buf[1024] = { 0 };
+	char buf[1024] = { 0 };	
+	char data[1024] = { 0 };
 	struct timeval t0;
 	struct timeval t1;
 	int erecv = 0;
-	struct msghdr *hmsg;
+	struct msghdr hmsg;
+	struct cmsghdr *cmhdr = NULL;
 	struct iovec iov[1];
 	char aux[1024] = { 0 };
+	unsigned char *tos = NULL;
 	hmsg.msg_name = &recv_addr;
-	hmsg.msg_len = sizeof(recv_addr);
+	hmsg.msg_namelen = sizeof(recv_addr);
 	hmsg.msg_iov = iov;
-	mhdr.msg_iovlen = 1;
-	mhdr.msg_control = &aux;
-	mhdr.msg_controllen = sizeof(aux) ;
+	hmsg.msg_iovlen = 1;
+	hmsg.msg_control = &aux;
+	hmsg.msg_controllen = sizeof(aux) ;
+	iov[0].iov_base = data;
+	iov[0].iov_len = sizeof(data);
 	
 	
   sock = socket(AF_INET, SOCK_RAW, proto->p_proto);
@@ -128,15 +133,29 @@ int ping(struct sockaddr_in *addr, char *dom_name)
   while (1)
     {
       len = sizeof(&recv_addr);
-      if (ret = recvmsg(sock, hmsg, MSG_DONTWAIT) > 0)
+      if (ret = recvmsg(sock, &hmsg, MSG_DONTWAIT) > 0)
 	{
 	  //	   gettimeofday(&t0, 0);
 	  //	   sleep(1);
 	  gettimeofday(&t1, 0);
 	  long time =  t1.tv_usec-t0.tv_usec;
 	  
-	  //	  printf("%lu got one...\n", elapsed);
-	
+	  //printf("%lu got one...\n", time);
+	  
+	    cmhdr = CMSG_FIRSTHDR(&hmsg);
+	    if (!cmhdr)
+	      printf("error cmhdr");
+	    while (cmhdr) {
+	    if (cmhdr->cmsg_level == IPPROTO_IP && cmhdr->cmsg_type == IP_TOS) {
+            // read the TOS byte in the IP header
+            tos = ((unsigned char *)CMSG_DATA(cmhdr))[0];
+	    }
+	    printf("-->type = %d\n", cmhdr->cmsg_type);fflush(stdout);
+	    cmhdr = CMSG_NXTHDR(&hmsg, cmhdr);
+	    }
+	    printf("data read: %s, tos byte = %02X\n", data, tos); 
+	   
+	  
 	  display(ret, buf, addr, dom_name, time);
 	  erecv = 0;
 	}
