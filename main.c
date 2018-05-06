@@ -81,7 +81,7 @@ int display(int bytes, char *buf, struct sockaddr_in *addr, char *dom_name, long
       printf("error inet_ntop..\n");
       return -1;
     }
-  printf("%lu bytes from  %s ttl=%d time=%lu\n", sizeof(struct packet), a_name, (int)(ip->ttl), time);
+  printf("%lu bytes from  %s ttl=%d proto=%d  time=%lu\n", sizeof(struct packet), a_name, (int)(ip->ttl),(int)(ip->protocol), time);
   return 0;
 }
 
@@ -175,8 +175,10 @@ int           msg_flags       flags on received message
 	    }
 	    printf("data read: %s, tos byte = %02X\n", data, tos);
 
-
-	  display(ret, buf, addr, dom_name, time);
+/*
+ * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
+ */
+	  display(ret, data, addr, dom_name, time);
 	  erecv = 0;
 	}
       else
