@@ -163,6 +163,8 @@ int           msg_flags       flags on received message
 	    cmhdr = CMSG_FIRSTHDR(&hmsg);
 	    if (!cmhdr)
 	      printf("error cmhdr\n");
+      else
+        printf("cmhdr exist\n");
 	    while (cmhdr) {
 	    if (cmhdr->cmsg_level == IPPROTO_IP && cmhdr->cmsg_type == IP_TOS) {
             // read the TOS byte in the IP header
