@@ -19,19 +19,19 @@ struct packet
 struct protoent 	*proto = NULL;
 
 int ping(struct sockaddr_in *addr, char *dom_name);
-  
+
 int main(int ac, char **av)
 {
   struct sockaddr_in 	addr;
 
   struct hostent	*hostname = NULL;
-  
+
   if (ac != 2)
     {
       printf("usage : ft_ping <hostname>\n");
       return (-1);
     }
-  
+
   proto = getprotobyname("ICMP");
 
   if ((hostname = gethostbyname(av[1])) == NULL)
@@ -97,7 +97,7 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	int i = 0;
 	int cnt = 0;
 	int ret = 0;
-	char buf[1024] = { 0 };	
+	char buf[1024] = { 0 };
 	char data[1024] = { 0 };
 	struct timeval t0;
 	struct timeval t1;
@@ -107,6 +107,18 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	struct iovec iov[1];
 	char aux[1024] = { 0 };
 	unsigned char *tos = NULL;
+
+/*
+// struct msghdr :
+
+void         *msg_name        optional address
+socklen_t     msg_namelen     size of address
+struct iovec *msg_iov         scatter/gather array
+int           msg_iovlen      members in msg_iov
+void         *msg_control     ancillary data, see below
+socklen_t     msg_controllen  ancillary data buffer len
+int           msg_flags       flags on received message
+*/
 	hmsg.msg_name = &recv_addr;
 	hmsg.msg_namelen = sizeof(recv_addr);
 	hmsg.msg_iov = iov;
@@ -115,8 +127,8 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	hmsg.msg_controllen = sizeof(aux) ;
 	iov[0].iov_base = data;
 	iov[0].iov_len = sizeof(data);
-	
-	
+
+
   sock = socket(AF_INET, SOCK_RAW, proto->p_proto);
   if (sock < 0)
     {
@@ -139,12 +151,18 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	  //	   sleep(1);
 	  gettimeofday(&t1, 0);
 	  long time =  t1.tv_usec-t0.tv_usec;
-	  
+
 	  //printf("%lu got one...\n", time);
-	  
+	/*
+  ### struct cmsghdr :
+
+  socklen_t     cmsg_len        data byte count, including the cmsghdr
+  int           cmsg_level      originating protocol
+  int           cmsg_type       protocol-specific type
+  */
 	    cmhdr = CMSG_FIRSTHDR(&hmsg);
 	    if (!cmhdr)
-	      printf("error cmhdr");
+	      printf("error cmhdr\n");
 	    while (cmhdr) {
 	    if (cmhdr->cmsg_level == IPPROTO_IP && cmhdr->cmsg_type == IP_TOS) {
             // read the TOS byte in the IP header
@@ -153,9 +171,9 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	    printf("-->type = %d\n", cmhdr->cmsg_type);fflush(stdout);
 	    cmhdr = CMSG_NXTHDR(&hmsg, cmhdr);
 	    }
-	    printf("data read: %s, tos byte = %02X\n", data, tos); 
-	   
-	  
+	    printf("data read: %s, tos byte = %02X\n", data, tos);
+
+
 	  display(ret, buf, addr, dom_name, time);
 	  erecv = 0;
 	}
