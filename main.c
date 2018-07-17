@@ -9,16 +9,29 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <errno.h>
-
+#include <unistd.h>
+#include <signal.h>
 struct packet
 {
   struct icmphdr hdr;
-  char msg[64-sizeof(struct icmphdr)];
+  struct iphdr iphdr;
+  char msg[64-(sizeof(struct icmphdr) + sizeof(struct iphdr))];
 };
 
 struct protoent 	*proto = NULL;
 
+unsigned int alarm_cnt = 0;
+
 int ping(struct sockaddr_in *addr, char *dom_name);
+
+void  ALARMhandler(int sig)
+{
+//  signal(SIGALRM, SIG_IGN);          /* ignore this signal       */
+//  printf("Hello\n");
+  //  signal(SIGALRM, ALARMhandler);     /* reinstall the handler    */
+  //  alarm(1);
+  alarm_cnt++;
+}
 
 int main(int ac, char **av)
 {
@@ -45,6 +58,7 @@ int main(int ac, char **av)
   addr.sin_addr.s_addr = *(long*)hostname->h_addr;
 
 
+
   ping(&addr, av[1]);
   return (0);
 }
@@ -64,41 +78,113 @@ unsigned short checksum(void *b, int len)
   result = ~sum;
   return result;
 }
+char *get_ip_from_header(uint32_t ip)
+{
+  struct in_addr addr;
+  char *ip_str = NULL;
+  
+  addr.s_addr = ip;
+  return (ip_str = inet_ntoa(addr));
+}
 
-int display(int bytes, char *buf, struct sockaddr_in *addr, char *dom_name, long time)
+int display(int bytes, char *buf, struct sockaddr_in *addr, char *dom_name, long time, int id)
 {
   struct addrinfo *addr_info;
   char a_name[1024] = { 0 };
+    char a_name2[1024] = { 0 };
   struct iphdr *ip = (struct iphdr *)buf;
+
+  //printf("size : %lu\n", ip->ihl);
+  /*
+   * struct icmphdr
+   * {
+   * u_int8_t type; 			--> message type 
+   * u_int8_t code;			--> type sub-code 
+   * u_int16_t checksum;
+   * union
+   *  {
+   *       struct
+   *	  {
+   *	    u_int16_tid;
+   *	    u_int16_tsequence;
+   *	  } echo; 			--> echo datagram 
+   *  u_int32_tgateway; 		--> gateway address 
+   *      struct
+   *	  {
+   *	    u_int16_t__unused;
+   *	    u_int16_tmtu;
+   *	  } frag; 		      	--> path mtu discovery 
+   * } un;
+   * };
+   */
+  struct icmphdr * icmphdr1 = (struct icmphdr *)(buf + sizeof(struct iphdr));
+  
 
   if (getaddrinfo(dom_name, NULL, NULL, &addr_info) != 0)
   {
     printf("error getaddrinfo..\n");
     return (-1);
   }
+
   if (inet_ntop(AF_INET, &((struct sockaddr_in *)addr_info->ai_addr)->sin_addr, a_name, sizeof(a_name)) == NULL)
     {
       printf("error inet_ntop..\n");
       return -1;
     }
-  printf("%lu bytes from  %s ttl=%d proto=%d  time=%lu\n", sizeof(struct packet), a_name, (int)(ip->ttl),(int)(ip->protocol), time);
+
+  //printf("aname = %s dom = %s ip->proto = %lu  aname2 = %s\n", a_name, dom_name, ip->protocol,   get_ip_from_header((uint32_t)ip->saddr));
+  /*
+   * check if the package is a ECHO REPLY from the host requested.
+   * from ip_icmp.h : 
+   * #define ICMP_ECHOREPLY 0    ---> Echo Reply
+   */  
+  if (icmphdr1->type == ICMP_ECHOREPLY && (int)(icmphdr1)->un.echo.id == id)// && !strncmp(a_name, get_ip_from_header((uint32_t)ip->saddr), strlen(a_name)))
+    {
+            printf ("seq=%d  id=%d ",(int)(icmphdr1)->un.echo.sequence, (int)(icmphdr1)->un.echo.id);
+      printf("%lu bytes from  %s icmp_seq=%lu ttl=%d proto=%d  time=%lu\n",bytes, a_name, (icmphdr1)->un.echo.sequence, (int)(ip->ttl),(int)(ip->protocol), time);
+      
+      //printf("\n%20s\n",(buf + sizeof(struct iphdr)));
+    }
+  else
+    {
+      printf("no ECHO_REPLY : code  = %d \n", (int)(icmphdr1)->un.echo.id);
+      return -1;
+    }
+  
   return 0;
 }
 
+/*void init_icmphdr(struct icmphdr)
+{
+
+  
+	hmsg.msg_name = &recv_addr;
+	hmsg.msg_namelen = sizeof(recv_addr);
+	hmsg.msg_iov = iov;
+	hmsg.msg_iovlen = 1;
+	hmsg.msg_control = &aux;
+	hmsg.msg_controllen = sizeof(aux) ;
+	iov[0].iov_base = data;
+	iov[0].iov_len = sizeof(data);  
+}
+*/
+
+
+
 int ping(struct sockaddr_in *addr, char *dom_name)
 {
-	int sock;
+	int sock = 0;
 	const int val = 255;
 	struct sockaddr_in recv_addr;
 	int len_addr = 0;
 	struct packet pkt;
-	int len;
+	int len = 0;
 	int pid = 0;
 	int i = 0;
-	int cnt = 0;
+	int cnt = 1;
 	int ret = 0;
 	char buf[1024] = { 0 };
-	char data[1024] = { 0 };
+	char data[64] = { 0 };
 	struct timeval t0;
 	struct timeval t1;
 	int erecv = 0;
@@ -107,7 +193,7 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	struct iovec iov[1];
 	char aux[1024] = { 0 };
 	unsigned char *tos = NULL;
-
+	int size_send = 0;
 /*
 // struct msghdr :
 
@@ -126,10 +212,9 @@ int           msg_flags       flags on received message
 	hmsg.msg_control = &aux;
 	hmsg.msg_controllen = sizeof(aux) ;
 	iov[0].iov_base = data;
-	iov[0].iov_len = sizeof(data);
+	iov[0].iov_len = sizeof(data);  
 
-
-  sock = socket(AF_INET, SOCK_RAW, proto->p_proto);
+  sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
   if (sock < 0)
     {
       printf("error getting the socket.\n");
@@ -142,66 +227,84 @@ int           msg_flags       flags on received message
       return (-1);
     }
   pid = getpid();
+  int saved_alarm = 0;
+  signal(SIGALRM, ALARMhandler);
+  //    alarm(1);
+  //  while(1);
+ 
   while (1)
     {
+
       len = sizeof(&recv_addr);
-      if (ret = recvmsg(sock, &hmsg, MSG_DONTWAIT) > 0)
+      if (ret = recvmsg(sock, &hmsg, MSG_DONTWAIT) > 0 && cnt != 1)
 	{
-	  //	   gettimeofday(&t0, 0);
-	  //	   sleep(1);
+	  //  write(1,hmsg.msg_iov[0].iov_base + (sizeof (struct iphdr) + sizeof(struct icmphdr)),64);
+	  
 	  gettimeofday(&t1, 0);
-	  long time =  t1.tv_usec-t0.tv_usec;
+	  //	  test_alarm = alarm(1);
+	  //printf("alarm = %lu \n" , test_alarm);
+	  long time =  t1.tv_usec-t0.tv_usec ;
 
-	  //printf("%lu got one...\n", time);
-	/*
-  ### struct cmsghdr :
+	  /*
+	   * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
+	   */
+	  printf("Display : \n");
+	  erecv = display(hmsg.msg_iov[0].iov_len, hmsg.msg_iov[0].iov_base, addr, dom_name, time, pid);
 
-  socklen_t     cmsg_len        data byte count, including the cmsghdr
-  int           cmsg_level      originating protocol
-  int           cmsg_type       protocol-specific type
-  */
-	    cmhdr = CMSG_FIRSTHDR(&hmsg);
-	    if (!cmhdr)
-	      printf("error cmhdr\n");
-      else
-        printf("cmhdr exist\n");
-	    while (cmhdr) {
-	    if (cmhdr->cmsg_level == IPPROTO_IP && cmhdr->cmsg_type == IP_TOS) {
-            // read the TOS byte in the IP header
-            tos = ((unsigned char *)CMSG_DATA(cmhdr))[0];
+	  if (erecv != -1)
+	    {
+	      //	      if (cnt > 155)
+		{
+	      alarm(1);
+	      while (1)
+		{
+		  if (alarm_cnt != saved_alarm)
+		    break;
+		}
+
+	      saved_alarm++;
+		}
 	    }
-	    printf("-->type = %d\n", cmhdr->cmsg_type);fflush(stdout);
-	    cmhdr = CMSG_NXTHDR(&hmsg, cmhdr);
-	    }
-	    printf("data read: %s, tos byte = %02X\n", data, tos);
-
-/*
- * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
- */
-	  display(ret, data, addr, dom_name, time);
-	  erecv = 0;
 	}
       else
 	{
-	printf("ft_ping: socket: Permission denied, attempting raw socket...\n");
-	perror(NULL);
-	erecv = -1;
+	  	  printf("no Display : \n");
+	  printf("ft_ping: socket: Permission denied, attempting raw socket...\n");
+	  perror(NULL);
+	  erecv = -1;
+      alarm(1);
+      while (1)
+	{
+	  if (alarm_cnt != saved_alarm)
+	    break;
 	}
-      //      if (erecv != -1)
-      sleep(1);
+      saved_alarm++;
 
+	}
+
+      
       bzero(&pkt, sizeof(pkt));
       pkt.hdr.type = ICMP_ECHO;
       pkt.hdr.un.echo.id = pid;
+      printf("pid : %d && sqved : %d && al_cnt : %d \n", pid, saved_alarm, alarm_cnt);
       for (i = 0; i < sizeof(pkt.msg)-1; i++ )
 	pkt.msg[i] = i+'0';
       pkt.msg[i] = 0;
       pkt.hdr.un.echo.sequence = cnt++;
       pkt.hdr.checksum = checksum(&pkt, sizeof(pkt));
-      gettimeofday(&t0, 0);
-      if ( sendto(sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)addr, sizeof(*addr)) <= 0 )
-	perror("sendto");
+      //      test_alarm = alarm(0);
 
-	//	      sleep(1);
+      gettimeofday(&t0, 0);
+      //      printf("send : icmp=%lu  iphdr=%lu\n",sizeof(struct icmphdr), sizeof(struct iphdr));
+      if ((size_send = sendto(sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)addr, sizeof(*addr))) <= 0 )
+	perror("sendto");
+      else
+	printf("package send : \n");
+
+      //printf("sizepkt : %d  size data : %lu\n",size_send, sizeof(pkt.msg));
+      if (pkt.hdr.un.echo.sequence == 0)
+	printf("PING %s %lu bytes of data.\n", dom_name, sizeof(pkt.msg));
+     
     }
+
 }
