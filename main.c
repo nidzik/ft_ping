@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -11,25 +12,13 @@
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdlib.h>
 
 struct packet
 {
 	struct icmphdr hdr;                    //8
 	struct iphdr iphdr;                    //20   
 	char msg[64-(sizeof(struct icmphdr) + sizeof(struct iphdr) )]; //36
-};
-
-struct average
-{
-	int pck_tranmited;
-	int pck_recv;
-	float pck_loss ;
-	int time;
-	float min;
-	float avg;
-	float max;
-	float mdev;
-  
 };
 
 struct info
@@ -40,20 +29,63 @@ struct info
 	int id;
 };
 
-struct protoent 	*proto = NULL;
+struct average
+{
+	int pck_transmited;
+	int pck_recv;
+	int pck_loss;
+	struct timeval time;
+	struct timeval time1;
+	struct timeval time2;
+	float min;
+	float avg;
+	float max;
+	float mdev;
+	int send;
+	int sock;
+	char *str;
+	char *dom_name;
+	struct sockaddr_in *addr;
+	struct msghdr hmsg;
+	struct iovec iov[1];
+	struct info in;
+};
 
+void send_packet(void);
+
+struct protoent 	*proto = NULL;
+struct average avg = {};
 unsigned int alarm_cnt = 0;
 
 int ping(struct sockaddr_in *addr, char *dom_name);
 
+void gg(void)
+{
+	struct timeval t;
+	int time = 0;
+	gettimeofday(&t, 0);
+	avg.pck_loss = avg.pck_transmited - avg.pck_recv;
+	time = (int)((t.tv_sec - avg.time.tv_sec)* 1000 + (t.tv_usec - avg.time.tv_usec)/ 1000 ) ;
+	
+	printf("\n--- localhost ping statistics ---\n");
+	printf("%d packets transmitted, %d reveived, %d  packet loss, time %dms\n", avg.pck_transmited, avg.pck_recv, avg.pck_loss, time);
+	exit(0);
+}
+
+void intHandler(int dummy) {
+	gg();
+}
+
 void  ALARMhandler(int sig)
 {
-  signal(SIGALRM, SIG_IGN);		  /* ignore this signal	   */
+//  signal(SIGALRM, SIG_IGN);		  /* ignore this signal	   */
 //  printf("Hello\n");
-	  signal(SIGALRM, ALARMhandler);	 /* reinstall the handler	*/
+//	  signal(SIGALRM, ALARMhandler);	 /* reinstall the handler	*/
+		  send_packet();
 	  alarm(1);
 //	  printf("Hello1\n");
-	alarm_cnt++;
+
+//	alarm_cnt++;
 }
 
 int main(int ac, char **av)
@@ -80,9 +112,11 @@ int main(int ac, char **av)
 	addr.sin_port = 0;
 	addr.sin_addr.s_addr = *(long*)hostname->h_addr;
 
-
+	signal(SIGINT, intHandler);
 
 	ping(&addr, av[1]);
+
+
 	return (0);
 }
 
@@ -117,7 +151,7 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	char a_name2[1024] = { 0 };
 	struct iphdr *ip = (struct iphdr *)in->buf;
 
-	//printf("size : %lu\n", ip->ihl);
+//	printf("size : %lu\n", ip->ihl);
 	/*
 	 * struct icmphdr
 	 * {
@@ -164,17 +198,23 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	if (icmphdr1->type == ICMP_ECHOREPLY && (int)(icmphdr1)->un.echo.id == in->id)// && !strncmp(a_name, get_ip_from_header((uint32_t)ip->saddr), strlen(a_name)))
 	{
 	float time_f = 0;
-	  
-	time_f = (float)((float)in->time / 1000);// + (float)((float)time % 1000);
+	if ((int)(ip->ttl) == 1)
+		printf("%lu bytes from  %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence));
+	else
+	{
+		time_f = (float)((float)avg.in.time / 1000);// + (float)((float)time % 1000);
 	// print proto : int(ip->protocol)
 //	printf ("seq=%d  id=%d ",(int)(icmphdr1)->un.echo.sequence, (int)(icmphdr1)->un.echo.id); 
-	printf("%lu bytes from  %s icmp_seq=%lu ttl=%d time=%3f ms\n",in->bytes, a_name, (icmphdr1)->un.echo.sequence, (int)(ip->ttl), time_f);
-	  
+		printf("%lu bytes from  %s icmp_seq=%lu ttl=%d time=%3f ms\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence), (int)(ip->ttl), time_f);
+		avg.pck_recv++;
+	}
+
+	avg.send = 0;
 	//printf("\n%20s\n",(buf + sizeof(struct iphdr)));
 	}
 	else
 	{
-	printf("no ECHO_REPLY : id  = %d type = %d \n", (int)(icmphdr1)->un.echo.id, icmphdr1->type);
+//	printf("no ECHO_REPLY : id  = %d type = %d \n", (int)(icmphdr1)->un.echo.id, icmphdr1->type);
 	return -1;
 	}
   
@@ -206,11 +246,74 @@ void tvsub( struct timeval *out, struct timeval *in )
 	out->tv_sec -= in->tv_sec;
 }
 
+void init_avg(void){
+	avg.pck_transmited = 0;
+    avg.pck_recv = 0;
+	avg.pck_loss = 0;
+	avg.min = 0;
+	avg.avg = 0;
+	avg.max = 0;
+	avg.mdev = 0;
+	avg.send = 0;
+	avg.sock = -1;
+}
+
+void send_packet(void)
+{
+	struct packet pkt;
+    struct timeval t0;
+	struct timeval t1;
+	int i = 0;
+	
+	bzero(&pkt, sizeof(pkt));
+	pkt.hdr.type = ICMP_ECHO;
+	pkt.hdr.un.echo.id = avg.in.id;
+	for (i = 0; i < sizeof(pkt.msg)-1; i++ )
+		pkt.msg[i] = i+'0';
+	pkt.msg[i] = 0;
+	avg.str = pkt.msg;
+//	printf("%%  %s  %%\n", pkt.msg);
+	pkt.hdr.un.echo.sequence = htons(avg.pck_transmited + 1);
+	pkt.hdr.checksum = checksum(&pkt, sizeof(pkt));
+//		printf("%%  %s  %%\n", pkt.msg);
+	gettimeofday(&avg.time2, 0);
+	if ((sendto(avg.sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)avg.addr, sizeof(*avg.addr))) <= 0 )
+	{
+		perror("sendto");
+	}
+	else
+	{
+		avg.pck_transmited++;
+		avg.send = 1;
+	}
+
+}
+
+void recv_packet(void)
+{
+	if (recvmsg(avg.sock, &avg.hmsg, 0) > 0)
+	{
+		gettimeofday(&avg.time1, 0);
+		//len = sizeof(&recv_addr);
+		avg.in.time = 0;
+		avg.in.time = avg.time1.tv_usec - avg.time2.tv_usec;
+
+		/*
+		 * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
+		 */
+		avg.in.bytes = avg.hmsg.msg_iov[0].iov_len;
+		avg.in.buf = avg.hmsg.msg_iov[0].iov_base; 
+//		if (avg.in.buf != avg.str)
+//			return;
+	}
+}
+
 #define BUFFER_MAX_SIZE 1024
+
 int ping(struct sockaddr_in *addr, char *dom_name)
 {
-	int sock = 0;
 	const int val = 255;
+	int reuseaddr = 0;
 	struct sockaddr_in recv_addr;
 	int len_addr = 0;
 	struct packet pkt;
@@ -224,15 +327,20 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	struct timeval t1;
 	struct timeval t3;
 	int erecv = 0;
-	struct msghdr hmsg;
 	struct cmsghdr *cmhdr = NULL;
 	struct iovec iov[1];
 	char aux[1024] = { 0 };
 	unsigned char *tos = NULL;
 	int size_send = 0;
 	struct info in;
-
-
+	struct msghdr hmsg ;
+	init_avg();
+	avg.addr = addr;
+	avg.dom_name = dom_name;
+	struct cmsghdr *cmsg = NULL;
+	struct sock_extended_err *sock_err; 
+	struct icmphdr * icmphdr1 = NULL;
+	
 	/*
 	// struct msghdr :
 
@@ -253,120 +361,86 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	iov[0].iov_base = data;
 	iov[0].iov_len = sizeof(data);  
 //			struct sockaddr_in *addr, char *dom_name, long time, int id)
-	sock = socket(AF_INET, SOCK_RAW , IPPROTO_ICMP);
-	if (sock < 0)
+	avg.sock = socket(AF_INET, SOCK_RAW , proto->p_proto);
+	if (avg.sock < 0)
 	{
 		printf("error getting the socket.\n");
 		perror(NULL);
 		return (-1);
 	}
-	if (setsockopt(sock, SOL_IP, IP_TTL, &val, sizeof(val)) != 0)
+	if (setsockopt(avg.sock, IPPROTO_IP, IP_TTL , &val, sizeof(val)) != 0)
 	{
 		printf("TTL error, setsockopt failed.\n");
 		return (-1);
 	}
+	else
+		if (setsockopt(avg.sock, SOL_SOCKET, SO_REUSEADDR, &(reuseaddr), sizeof(reuseaddr)) != 0 )
+		{
+			printf("TTL error, setsockopt failed.\n");
+			return (-1);
+		}
+
 	in.id = getpid();
+	avg.in.id = in.id;
 	int saved_alarm = 0;
+	in.time = 0;	
+	avg.in.time = in.time;
+	gettimeofday(&(avg.time), 0);
+	if (!avg.pck_transmited)
+		printf("PING %s %lu %lu %lu bytes of data.\n", dom_name, sizeof(pkt.msg), sizeof(pkt.iphdr), sizeof(pkt.hdr));
+	if (1 == 1 )
+	{
 	signal(SIGALRM, ALARMhandler);
 	alarm(1);
-	//  while(1);
-	in.time = 0;
+	}
+	send_packet();
 
-	while (1)
+	
+	while(1)
 	{
 
-		len = sizeof(&recv_addr);
-		in.time = 0;
-		if (ret = recvmsg(sock, &hmsg, MSG_DONTWAIT) > 0 )
+//		if (avg.send == 1)
 		{
-			gettimeofday(&t1, 0);
-			//  write(1,hmsg.msg_iov[0].iov_base + (sizeof (struct iphdr) + sizeof(struct icmphdr)),64);
-			//timesub(&t0, &t1, &t3);
-			// if (erecv != -1 && erecv != -2)
-			in.time = t1.tv_usec - t0.tv_usec;
-	 
-			  
-			/*
-			 * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
-			 */
-//		printf("Display : \n");
-
-			in.bytes = hmsg.msg_iov[0].iov_len;
-			in.buf = hmsg.msg_iov[0].iov_base;
-			
-			erecv = display(&in, addr, dom_name);
-			if (erecv != -1)
+//			recv_packet();
+			if (recvmsg(avg.sock, &hmsg, 0) > 0)
 			{
-//				signal(SIGALRM, ALARMhandler);
-//				alarm(1);
+				gettimeofday(&avg.time1, 0);
+				//len = sizeof(&recv_addr);
+				//in.time = 0;
+				in.time = avg.time1.tv_usec - avg.time2.tv_usec;
 
-				while (1)
-					if (alarm_cnt != saved_alarm)
-						break;
-				saved_alarm++;
+				/*
+				 * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
+				 */
+				in.bytes = hmsg.msg_iov[0].iov_len;
+				in.buf = hmsg.msg_iov[0].iov_base;
 
-				;
+				icmphdr1 = (struct icmphdr *)(in.buf + sizeof(struct iphdr));
+
+				avg.in = in;
+//				printf("avg.str == %s , avg.in.buf == %s , okok   in.buf == %s       ---> %d   %d \n", avg.str, avg.in.buf, in.buf, (int)(icmphdr1)->un.echo.id, avg.in.id);
+				if (avg.in.id == (int)(icmphdr1)->un.echo.id)
+					display(&in, avg.addr, avg.dom_name);
+				//          return;
 			}
+//			if (avg.in.buf != avg.str)
+//				display(&avg.in, avg.addr, avg.dom_name);
+		}
+
+	}
+/*
+** 
+** if flood is activate, send_packet() here ! 
+**
+
+		else if (avg.send == 0  )// && (alarm_cnt != saved_alarm)) 
+			erecv = -1;
+		if ((erecv != -1 || cnt == 1) && 1==0)
+		{
+			send_packet();
 
 		}
-	else 
-	{
-		erecv = -1;
-		//	  printf("no Display / cnt : %d	erecv == %d \n", cnt, erecv);
-		//printf("ft_ping: socket: Permission denied, attempting raw socket...\n");
-		//perror(NULL);
-
 	}
-		
-	if (erecv != -1 || cnt == 1)//;; && erecv != -2 )
-	{
-		bzero(&pkt, sizeof(pkt));
-		pkt.hdr.type = ICMP_ECHO;
-		pkt.hdr.un.echo.id = in.id;
-		//printf("pid : %d && sqved : %d && al_cnt : %d \n", pid, saved_alarm, alarm_cnt);
-		for (i = 0; i < sizeof(pkt.msg)-1; i++ )
-			pkt.msg[i] = i+'0';
-		pkt.msg[i] = 0;
-
-		pkt.hdr.un.echo.sequence = cnt;
-		cnt++;
-		pkt.hdr.checksum = checksum(&pkt, sizeof(pkt));
-
-		//	  test_alarm = alarm(0);
-	
-		if (pkt.hdr.un.echo.sequence == 1)
-			printf("PING %s %lu %lu %lu bytes of data.\n", dom_name, sizeof(pkt.msg), sizeof(pkt.iphdr), sizeof(pkt.hdr));
-	
-		//	  printf("send : icmp=%lu  iphdr=%lu\n",sizeof(struct icmphdr), sizeof(struct iphdr));
-		gettimeofday(&t0, 0);
-		if ((size_send = sendto(sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)addr, sizeof(*addr))) <= 0 )
-			perror("sendto");
-		//else
-		//printf("package send : \n");
-	
-		/*
-		  alarm(1);
-		  while(1)
-		  {
-	 
-		  if (ret = recvmsg(sock, &hmsg, O_NONBLOCK) > 0 && !gettimeofday(&t1, 0))
-		  {
-		  time = t1.tv_usec - t0.tv_usec;
-		  erecv = display(hmsg.msg_iov[0].iov_len, hmsg.msg_iov[0].iov_base, addr, dom_name, time, pid);
-		  if (alarm_cnt != saved_alarm)
-		  break;
-		  }
-
-		  }
-		  saved_alarm++;	  
-		  display(hmsg.msg_iov[0].iov_len, hmsg.msg_iov[0].iov_base, addr, dom_name, time, pid);
-		  printf("endbreazk \n");
-
-		*/
-		  
-		//printf("sizepkt : %d  size data : %lu\n",size_send, sizeof(pkt.msg));
-	}
-//				while (1);	 
-	}
-
+*/
 }
+
