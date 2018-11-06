@@ -1,64 +1,10 @@
+#include "ft_ping.h"
 
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <string.h>
-#include <netinet/in.h>
-#include <netinet/ip_icmp.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/time.h>
-#include <errno.h>
-#include <unistd.h>
-#include <signal.h>
-#include <stdlib.h>
+t_avg avg;
+void int_handler(int dummy);
+void  ALARMhandler(int sig);
 
-struct packet
-{
-	struct icmphdr hdr;                    //8
-	struct iphdr iphdr;                    //20   
-	char msg[64-(sizeof(struct icmphdr) + sizeof(struct iphdr) )]; //36
-};
-
-struct info
-{
-	int bytes;
-	char *buf;
-	long time;
-	int id;
-};
-
-struct average
-{
-	int pck_transmited;
-	int pck_recv;
-	int pck_loss;
-	struct timeval time;
-	struct timeval time1;
-	struct timeval time2;
-	float min;
-	float avg;
-	float max;
-	float mdev;
-	int send;
-	int sock;
-	char *str;
-	char *dom_name;
-	struct sockaddr_in *addr;
-	struct msghdr hmsg;
-	struct iovec iov[1];
-	struct info in;
-};
-
-void send_packet(void);
-
-struct protoent 	*proto = NULL;
-struct average avg = {};
-unsigned int alarm_cnt = 0;
-
-int ping(struct sockaddr_in *addr, char *dom_name);
-
+/*
 void gg(void)
 {
 	struct timeval t;
@@ -73,20 +19,16 @@ void gg(void)
 }
 
 void intHandler(int dummy) {
+	(void)dummy;
 	gg();
 }
 
 void  ALARMhandler(int sig)
 {
-//  signal(SIGALRM, SIG_IGN);		  /* ignore this signal	   */
-//  printf("Hello\n");
-//	  signal(SIGALRM, ALARMhandler);	 /* reinstall the handler	*/
-		  send_packet();
-	  alarm(1);
-//	  printf("Hello1\n");
-
-//	alarm_cnt++;
+	send_packet();
+	alarm(1);
 }
+*/
 
 int main(int ac, char **av)
 {
@@ -100,7 +42,7 @@ int main(int ac, char **av)
 	return (-1);
 	}
 
-	proto = getprotobyname("ICMP");
+	avg.proto = getprotobyname("ICMP");
 
 	if ((hostname = gethostbyname(av[1])) == NULL)
 	{
@@ -112,8 +54,9 @@ int main(int ac, char **av)
 	addr.sin_port = 0;
 	addr.sin_addr.s_addr = *(long*)hostname->h_addr;
 
-	signal(SIGINT, intHandler);
+	signal(SIGINT, int_handler);
 
+	
 	ping(&addr, av[1]);
 
 
@@ -146,6 +89,7 @@ char *get_ip_from_header(uint32_t ip)
 
 int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 {
+//		printf("3\n\n");fflush(stdout);
 	struct addrinfo *addr_info;
 	char a_name[1024] = { 0 };
 	char a_name2[1024] = { 0 };
@@ -179,14 +123,14 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 
 	if (getaddrinfo(dom_name, NULL, NULL, &addr_info) != 0)
 	{
-	printf("error getaddrinfo..\n");
-	return (-1);
+		printf("error getaddrinfo..\n");
+		return (-1);
 	}
 
 	if (inet_ntop(AF_INET, &((struct sockaddr_in *)addr_info->ai_addr)->sin_addr, a_name, sizeof(a_name)) == NULL)
 	{
-	printf("error inet_ntop..\n");
-	return -1;
+		printf("error inet_ntop..\n");
+		return -1;
 	}
 
 	//printf("aname = %s dom = %s ip->proto = %lu  aname2 = %s\n", a_name, dom_name, ip->protocol,   get_ip_from_header((uint32_t)ip->saddr));
@@ -197,7 +141,6 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	 */  
 	if (icmphdr1->type == ICMP_ECHOREPLY && (int)(icmphdr1)->un.echo.id == in->id)// && !strncmp(a_name, get_ip_from_header((uint32_t)ip->saddr), strlen(a_name)))
 	{
-		printf ("yes  iphdr id = %d \n",ip->id);
 		float time_f = 0;
 		if ((int)(ip->ttl) == 1)
 			printf("%lu bytes from %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence));
@@ -216,9 +159,8 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	{
 		if (icmphdr1->type == ICMP_TIME_EXCEEDED /* 11 */ && icmphdr1->code ==  ICMP_EXC_TTL/* 0 */)
 		{
-			printf("%lu bytes from %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, avg.pck_transmited -1 );			
+			printf("%lu bytes from %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, avg.pck_transmited);			
 		}
-		printf ("noo  iphdr id = %d \n",ip->id);
 //		printf("aname : %s    dom_name : %s            idk : %s\n",a_name, dom_name, &((struct sockaddr_in *)addr_info->ai_addr)->sin_addr );
 //		printf("no ECHO_REPLY : id  = %d type = %d   code : %d \n", (int)(icmphdr1)->un.echo.id, icmphdr1->type, icmphdr1->code );
 		return -1;
@@ -267,8 +209,6 @@ void init_avg(void){
 void send_packet(void)
 {
 	struct packet pkt;
-    struct timeval t0;
-	struct timeval t1;
 	int i = 0;
 	
 	bzero(&pkt, sizeof(pkt));
@@ -302,7 +242,10 @@ void send_packet(void)
 
 void recv_packet(void)
 {
-	if (recvmsg(avg.sock, &avg.hmsg, 0) > 0)
+	struct icmphdr * icmphdr1 = NULL;
+	struct iphdr *ip = NULL; 
+	
+	if (recvmsg(avg.sock, &(avg.hmsg), 0) > 0)
 	{
 		gettimeofday(&avg.time1, 0);
 		//len = sizeof(&recv_addr);
@@ -313,7 +256,15 @@ void recv_packet(void)
 		 * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
 		 */
 		avg.in.bytes = avg.hmsg.msg_iov[0].iov_len;
-		avg.in.buf = avg.hmsg.msg_iov[0].iov_base; 
+		avg.in.buf = avg.hmsg.msg_iov[0].iov_base;
+		ip = (struct iphdr *)avg.in.buf;
+		icmphdr1 = (struct icmphdr *)(avg.in.buf +sizeof(struct iphdr));
+//		printf("avg.in.id  %d    echo id : %d     %s    %s \n", avg.in.id,  (int)(icmphdr1)->un.echo.id, get_ip_from_header((uint32_t)ip->saddr), avg.dom_name);fflush(stdout);
+		if (avg.in.id == (int)(icmphdr1)->un.echo.id || !strncmp(get_ip_from_header((uint32_t)ip->saddr), avg.dom_name, 5) || (!strncmp(avg.dom_name, "localhost", 9) && avg.in.id == (int)(icmphdr1)->un.echo.id))
+			display(&avg.in, avg.addr, avg.dom_name);
+//		else
+//			printf("nodosplay\n");
+
 //		if (avg.in.buf != avg.str)
 //			return;
 	}
@@ -328,31 +279,14 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	struct sockaddr_in recv_addr;
 	int len_addr = 0;
 	struct packet pkt;
-	int len = 0;
-	int i = 0;
-	int cnt = 1;
-	int ret = 0;
-	char buf[1024] = { 0 };
 	char data[64] = { 0 };
-	struct timeval t0;
-	struct timeval t1;
-	struct timeval t3;
-	int erecv = 0;
-	struct cmsghdr *cmhdr = NULL;
-	struct iovec iov[1];
 	char aux[1024] = { 0 };
-	unsigned char *tos = NULL;
-	int size_send = 0;
-	struct info in;
-	struct msghdr hmsg ;
+
 	init_avg();
 	avg.addr = addr;
 	avg.dom_name = dom_name;
-	struct cmsghdr *cmsg = NULL;
-	struct sock_extended_err *sock_err; 
-	struct icmphdr * icmphdr1 = NULL;
-	
-	/*
+
+/*
 	// struct msghdr :
 
 	void		 *msg_name		optional address
@@ -363,45 +297,18 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	socklen_t	 msg_controllen  ancillary data buffer len
 	int		   msg_flags	   flags on received message
 	*/
-	hmsg.msg_name = &recv_addr;
-	hmsg.msg_namelen = sizeof(recv_addr);
-	hmsg.msg_iov = iov;
-	hmsg.msg_iovlen = 1;
-	hmsg.msg_control = &aux;
-	hmsg.msg_controllen = sizeof(aux) ;
-	iov[0].iov_base = data;
-	iov[0].iov_len = sizeof(data);  
-//			struct sockaddr_in *addr, char *dom_name, long time, int id)
+	avg.hmsg.msg_name = &recv_addr;
+	avg.hmsg.msg_namelen = sizeof(recv_addr);
+	avg.hmsg.msg_iov = avg.iov;
+	avg.hmsg.msg_iovlen = 1;
+	avg.hmsg.msg_control = &aux;
+	avg.hmsg.msg_controllen = sizeof(aux) ;
+	avg.iov[0].iov_base = data;
+	avg.iov[0].iov_len = sizeof(data);  
+	avg.sock = socket(AF_INET, SOCK_RAW , avg.proto->p_proto);
 
-
-
-	
-	avg.sock = socket(AF_INET, SOCK_RAW , proto->p_proto);
-   	
-	if (avg.sock < 0)
-	{
-		printf("error getting the socket.\n");
-		perror(NULL);
-		return (-1);
-	}
-	if (setsockopt(avg.sock, IPPROTO_IP, IP_TTL , &val, sizeof(val)) != 0)
-	{
-		printf("TTL error, setsockopt failed.\n");
-		return (-1);
-	}
-	else
-		if (setsockopt(avg.sock, SOL_SOCKET, SO_REUSEADDR, &(reuseaddr), sizeof(reuseaddr)) != 0 )
-		{
-			printf("TTL error, setsockopt failed.\n");
-			return (-1);
-		}
-	
-	in.id = getpid();
-	avg.in.id = in.id;
-	int saved_alarm = 0;
-	in.time = 0;	
-	avg.in.time = in.time;
-	gettimeofday(&(avg.time), 0);
+	init_socket();
+	printf("ook");
 	if (!avg.pck_transmited)
 		printf("PING %s %lu %lu %lu bytes of data.\n", dom_name, sizeof(pkt.msg), sizeof(pkt.iphdr), sizeof(pkt.hdr));
 	if (1 == 1 )
@@ -414,36 +321,7 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	
 	while(1)
 	{
-
-//		if (avg.send == 1)
-		{
-//			recv_packet();
-			if (recvmsg(avg.sock, &hmsg, 0) > 0)
-			{
-				gettimeofday(&avg.time1, 0);
-				//len = sizeof(&recv_addr);
-				//in.time = 0;
-				in.time = avg.time1.tv_usec - avg.time2.tv_usec;
-
-				/*
-				 * data are in iov[0].iov_base (data[]) for the iphdr parsing in display. (ttl proto..)
-				 */
-				in.bytes = hmsg.msg_iov[0].iov_len;
-				in.buf = hmsg.msg_iov[0].iov_base;
-
-				icmphdr1 = (struct icmphdr *)(in.buf + sizeof(struct iphdr));
-				struct iphdr *ip = (struct iphdr *)in.buf;
-
-				avg.in = in;
-//				printf("avg.str == %s , avg.in.buf == %s , okok   in.buf == %s       ---> %d   %d \n", avg.str, avg.in.buf, in.buf, (int)(icmphdr1)->un.echo.id, avg.in.id);
-				if (avg.in.id == (int)(icmphdr1)->un.echo.id || !strncmp(get_ip_from_header((uint32_t)ip->saddr), dom_name, 5))
-					display(&in, avg.addr, avg.dom_name);
-				//          return;
-			}
-//			if (avg.in.buf != avg.str)
-//				display(&avg.in, avg.addr, avg.dom_name);
-		}
-
+		recv_packet();
 	}
 /*
 ** 
