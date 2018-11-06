@@ -1,0 +1,5 @@
+sudo ./a.out 600 // bugg
+
+https://unix.stackexchange.com/questions/281015/m-option-does-not-work-in-ping-command
+// add options
+

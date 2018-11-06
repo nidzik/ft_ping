@@ -151,7 +151,7 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	char a_name2[1024] = { 0 };
 	struct iphdr *ip = (struct iphdr *)in->buf;
 
-//	printf("size : %lu\n", ip->ihl);
+//	printf("size : %lu    %s \n", ip->ihl, get_ip_from_header((uint32_t)ip->saddr));
 	/*
 	 * struct icmphdr
 	 * {
@@ -162,14 +162,14 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	 *  {
 	 *	   struct
 	 *	  {
-	 *		u_int16_tid;
-	 *		u_int16_tsequence;
+	 *		u_int16_t id;
+	 *		u_int16_t sequence;
 	 *	  } echo; 			--> echo datagram 
-	 *  u_int32_tgateway; 		--> gateway address 
+	 *  u_int32_t gateway; 		--> gateway address 
 	 *	  struct
 	 *	  {
-	 *		u_int16_t__unused;
-	 *		u_int16_tmtu;
+	 *		u_int16_t_ _unused;
+	 *		u_int16_t mtu;
 	 *	  } frag; 			  	--> path mtu discovery 
 	 * } un;
 	 * };
@@ -197,25 +197,31 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	 */  
 	if (icmphdr1->type == ICMP_ECHOREPLY && (int)(icmphdr1)->un.echo.id == in->id)// && !strncmp(a_name, get_ip_from_header((uint32_t)ip->saddr), strlen(a_name)))
 	{
-	float time_f = 0;
-	if ((int)(ip->ttl) == 1)
-		printf("%lu bytes from  %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence));
-	else
-	{
-		time_f = (float)((float)avg.in.time / 1000);// + (float)((float)time % 1000);
-	// print proto : int(ip->protocol)
-//	printf ("seq=%d  id=%d ",(int)(icmphdr1)->un.echo.sequence, (int)(icmphdr1)->un.echo.id); 
-		printf("%lu bytes from  %s icmp_seq=%lu ttl=%d time=%3f ms\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence), (int)(ip->ttl), time_f);
-		avg.pck_recv++;
-	}
-
+		printf ("yes  iphdr id = %d \n",ip->id);
+		float time_f = 0;
+		if ((int)(ip->ttl) == 1)
+			printf("%lu bytes from %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence));
+		else
+		{
+			time_f = (float)((float)avg.in.time / 1000);// + (float)((float)time % 1000);
+			// print proto : int(ip->protocol)
+			//	printf ("seq=%d  id=%d ",(int)(icmphdr1)->un.echo.sequence, (int)(icmphdr1)->un.echo.id); 
+			printf("%lu bytes from %s icmp_seq=%lu ttl=%d time=%3f ms\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence), (int)(ip->ttl), time_f);
+			avg.pck_recv++;
+		}
 	avg.send = 0;
 	//printf("\n%20s\n",(buf + sizeof(struct iphdr)));
 	}
 	else
 	{
-//	printf("no ECHO_REPLY : id  = %d type = %d \n", (int)(icmphdr1)->un.echo.id, icmphdr1->type);
-	return -1;
+		if (icmphdr1->type == ICMP_TIME_EXCEEDED /* 11 */ && icmphdr1->code ==  ICMP_EXC_TTL/* 0 */)
+		{
+			printf("%lu bytes from %s icmp_seq=%lu Time to live exceeded\n",in->bytes, a_name, avg.pck_transmited -1 );			
+		}
+		printf ("noo  iphdr id = %d \n",ip->id);
+//		printf("aname : %s    dom_name : %s            idk : %s\n",a_name, dom_name, &((struct sockaddr_in *)addr_info->ai_addr)->sin_addr );
+//		printf("no ECHO_REPLY : id  = %d type = %d   code : %d \n", (int)(icmphdr1)->un.echo.id, icmphdr1->type, icmphdr1->code );
+		return -1;
 	}
   
 	return 0;
@@ -266,6 +272,7 @@ void send_packet(void)
 	int i = 0;
 	
 	bzero(&pkt, sizeof(pkt));
+
 	pkt.hdr.type = ICMP_ECHO;
 	pkt.hdr.un.echo.id = avg.in.id;
 	for (i = 0; i < sizeof(pkt.msg)-1; i++ )
@@ -274,12 +281,16 @@ void send_packet(void)
 	avg.str = pkt.msg;
 //	printf("%%  %s  %%\n", pkt.msg);
 	pkt.hdr.un.echo.sequence = htons(avg.pck_transmited + 1);
+//		pkt.iphdr.id = 10;
+//		pkt.iphdr.ttl = 10;
 	pkt.hdr.checksum = checksum(&pkt, sizeof(pkt));
+
 //		printf("%%  %s  %%\n", pkt.msg);
 	gettimeofday(&avg.time2, 0);
 	if ((sendto(avg.sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)avg.addr, sizeof(*avg.addr))) <= 0 )
 	{
 		perror("sendto");
+		exit(1);
 	}
 	else
 	{
@@ -361,7 +372,12 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	iov[0].iov_base = data;
 	iov[0].iov_len = sizeof(data);  
 //			struct sockaddr_in *addr, char *dom_name, long time, int id)
+
+
+
+	
 	avg.sock = socket(AF_INET, SOCK_RAW , proto->p_proto);
+   	
 	if (avg.sock < 0)
 	{
 		printf("error getting the socket.\n");
@@ -379,7 +395,7 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 			printf("TTL error, setsockopt failed.\n");
 			return (-1);
 		}
-
+	
 	in.id = getpid();
 	avg.in.id = in.id;
 	int saved_alarm = 0;
@@ -416,10 +432,11 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 				in.buf = hmsg.msg_iov[0].iov_base;
 
 				icmphdr1 = (struct icmphdr *)(in.buf + sizeof(struct iphdr));
+				struct iphdr *ip = (struct iphdr *)in.buf;
 
 				avg.in = in;
 //				printf("avg.str == %s , avg.in.buf == %s , okok   in.buf == %s       ---> %d   %d \n", avg.str, avg.in.buf, in.buf, (int)(icmphdr1)->un.echo.id, avg.in.id);
-				if (avg.in.id == (int)(icmphdr1)->un.echo.id)
+				if (avg.in.id == (int)(icmphdr1)->un.echo.id || !strncmp(get_ip_from_header((uint32_t)ip->saddr), dom_name, 5))
 					display(&in, avg.addr, avg.dom_name);
 				//          return;
 			}
