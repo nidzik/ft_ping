@@ -42,7 +42,7 @@ void init_socket(void)
 		printf("TTL error, setsockopt failed.\n");
 		exit(-1);
 	}
-	else
+//	else
 		if (setsockopt(avg.sock, SOL_SOCKET, SO_REUSEADDR, &(reuseaddr), sizeof(reuseaddr)) != 0 )
 		{
 			printf("TTL error, setsockopt failed.\n");
@@ -52,6 +52,5 @@ void init_socket(void)
 	avg.in.time = 0;
 	gettimeofday(&(avg.time), 0);
 
-	printf("return");
 	return ;
 }

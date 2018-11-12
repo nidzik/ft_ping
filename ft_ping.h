@@ -15,6 +15,17 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <ctype.h>
+
+#define F_FLOOD     0x001
+#define F_MARK      0x002
+#define F_TTL		0x004
+#define F_VERB		0x008
+#define F_COUNT		0x010
+
+#define D_COUNT		10
+#define D_MARK		42
+#define D_TTL		64
 
 struct packet
 {
@@ -47,6 +58,11 @@ typedef struct average
 	int sock;
 	char *str;
 	char *dom_name;
+	int options;
+	int mark;
+	int count;
+	int ttl;
+	struct addrinfo *addr_info;
 	struct protoent *proto;
 	struct sockaddr_in *addr;
 	struct msghdr hmsg;
@@ -59,7 +75,9 @@ extern t_avg avg;
 int ping(struct sockaddr_in *addr, char *dom_name);
 void init_socket(void);
 void send_packet(void);
+void recv_packet(void);
 void gg(void);
+void check_args(char **args);
 
 void ALARMhandler(int sig);
 void int_handler(int dummy);
