@@ -1,13 +1,6 @@
 #include "ft_ping.h"
 
 
-//#include <ctype.h>
-//int avg.options;
-//#define F_FLOOD  	0x001 
-//#define F_MARK 		0x002
-
-//int mark;
-//#define D_MARK      42
 static int strisnumber(const char *str)
 {
 	if (!str || !strlen(str))
@@ -36,7 +29,6 @@ void check_args(char **args)
 				case ('f'):
 				{
 					avg.options |= F_FLOOD;
-					printf("okok F \n");
 					break;
 				}
 				case ('m'):
@@ -52,7 +44,11 @@ void check_args(char **args)
 				case ('v'):
 				{
 					avg.options |= F_VERB;
-					printf("okok F \n");
+					break;
+				}
+				case ('q'):
+				{
+					avg.options |= F_QUIET;
 					break;
 				}
 				case('c'):
@@ -73,14 +69,13 @@ void check_args(char **args)
 						avg.ttl = D_TTL;
 					avg.options |= F_TTL;
 				}
-				default :
-					printf("def\n");
+				default:
 					break;
-					}
+				}
 				i++;
+
 			}
 		}
-		
 	}
 /*	if (avg.options & F_FLOOD & F_MARK)
 		printf("avg.options & F_FLOOD & F_MARK\n");
@@ -96,5 +91,5 @@ void check_args(char **args)
 		printf("!avg.options \n");
 	else
 		printf("ko\n");
-*/	
+*/
 }

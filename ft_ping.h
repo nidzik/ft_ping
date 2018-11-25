@@ -16,12 +16,15 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <sys/prctl.h>
+#include <sys/capability.h>
 
 #define F_FLOOD     0x001
 #define F_MARK      0x002
 #define F_TTL		0x004
 #define F_VERB		0x008
 #define F_COUNT		0x010
+#define F_QUIET		0x020
 
 #define D_COUNT		10
 #define D_MARK		42
@@ -62,6 +65,9 @@ typedef struct average
 	int mark;
 	int count;
 	int ttl;
+	double rtt_min;
+	double rtt_max;
+	double rtt_sum;
 	struct addrinfo *addr_info;
 	struct protoent *proto;
 	struct sockaddr_in *addr;
@@ -81,5 +87,13 @@ void check_args(char **args);
 
 void ALARMhandler(int sig);
 void int_handler(int dummy);
+//extern int modify_capability(cap_value_t, cap_flag_value_t);
+/*static inline int enable_capability_admin(void) { return modify_capability(CAP_NET_ADMIN, CAP_SET);   }
+static inline int disable_capability_admin(void){ return modify_capability(CAP_NET_ADMIN, CAP_CLEAR); }
 
+static inline int enable_capability_raw(void){ return modify_capability(CAP_NET_RAW,   CAP_SET);   }
+static inline int disable_capability_raw(void){ return modify_capability(CAP_NET_RAW,   CAP_CLEAR); }
+static inline int enable_capability_admin(void){ return modify_capability(CAP_NET_ADMIN, CAP_SET);   }
+static inline int disable_capability_admin(void){ return modify_capability(CAP_NET_ADMIN, CAP_CLEAR); }*/
+#else
 #endif

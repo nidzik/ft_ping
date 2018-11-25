@@ -2,7 +2,7 @@ EXEC		= 	ft_ping
 
 CC			= 	gcc
 
-CFLAGS		= 	# -Wall -Wextra -Werror
+CFLAGS		= 	 -Wall -Wextra -Werror
 
 SRC			= 	main\
 				init\
