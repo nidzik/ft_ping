@@ -135,9 +135,9 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 		else
 		{
 			time_f = (float)((float)avg.in.time / 1000);
-
+			
 			if (!(avg.options & F_FLOOD) && !(avg.options & F_QUIET))
-			printf("%d bytes from %s icmp_seq=%d ttl=%d time=%.4f ms\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence), (int)(ip->ttl), time_f);
+				printf("%d bytes from %s icmp_seq=%d ttl=%d time=%.3f ms\n",in->bytes, a_name, ntohs((icmphdr1)->un.echo.sequence), ((int)(ip->ttl)- (64 - avg.ttl))  , time_f);
 			double timedouble = timevaldiff(&avg.time2, &avg.time1);
 			avg.rtt_sum += timedouble;
 			if (timedouble > avg.rtt_max)
@@ -157,9 +157,9 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
 	else
 	{
 		if (icmphdr1->type == ICMP_TIME_EXCEEDED /* 11 */ && icmphdr1->code ==  ICMP_EXC_TTL/* 0 */)
-		{
-			printf("%d bytes from %s icmp_seq=%d Time to live exceeded\n",in->bytes, a_name, avg.pck_transmited);			
-		}
+			printf("%d bytes from %s icmp_seq=%d Time to live exceeded\n",in->bytes, a_name, avg.pck_transmited);
+		else if (avg.options & F_VERB)
+			printf("%d bytes from %s icmp_seq=%d icmp_type=%d icmp_code=%d\n",in->bytes, a_name, avg.pck_transmited, icmphdr1->type, icmphdr1->code);
 		return -1;
 	}
   
@@ -181,7 +181,8 @@ int display(struct info *in, struct sockaddr_in *addr, char *dom_name)
   }
 */
 
-void init_avg(void){
+void init_avg(void)
+{
 	avg.pck_transmited = 0;
     avg.pck_recv = 0;
 	avg.pck_loss = 0;
@@ -195,7 +196,9 @@ void init_avg(void){
 	avg.rtt_max = 0;
 	avg.rtt_sum = 0;
 	avg.addr_info = NULL;
-}
+	if(!avg.options || !(avg.options & F_TTL))
+		avg.ttl = D_TTL;
+		}
 
 void send_packet(void)
 {
@@ -212,6 +215,7 @@ void send_packet(void)
 	avg.str = pkt.msg;
 	pkt.hdr.un.echo.sequence = htons(avg.pck_transmited + 1);
 	pkt.hdr.checksum = checksum(&pkt, sizeof(pkt));
+
 	gettimeofday(&avg.time2, 0);
 	if ((sendto(avg.sock, &pkt, sizeof(pkt), 0, (struct sockaddr*)avg.addr, sizeof(*avg.addr))) <= 0 )
 	{
@@ -244,7 +248,7 @@ void recv_packet(void)
 		ip = (struct iphdr *)avg.in.buf;
 		icmphdr1 = (struct icmphdr *)(avg.in.buf +sizeof(struct iphdr));
 
-		if (avg.in.id == (int)(icmphdr1)->un.echo.id || !strncmp(get_ip_from_header((uint32_t)ip->saddr), avg.dom_name, 5) || (!strncmp(avg.dom_name, "localhost", 9) && avg.in.id == (int)(icmphdr1)->un.echo.id))
+		if (avg.in.id == (int)(icmphdr1)->un.echo.id || !strncmp(get_ip_from_header((uint32_t)ip->saddr), avg.dom_name, 7) || (!strncmp(avg.dom_name, "localhost", 9) && avg.in.id == (int)(icmphdr1)->un.echo.id))
 			display(&avg.in, avg.addr, avg.dom_name);
 	}
 }
@@ -297,7 +301,7 @@ int ping(struct sockaddr_in *addr, char *dom_name)
 	while(1)
 	{
 		recv_packet();
-		if (avg.options & F_FLOOD)
+		if (avg.options & F_FLOOD && avg.send == 0)
 			send_packet();
 	}
 }

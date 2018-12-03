@@ -5,7 +5,7 @@
 
 void init_socket(void)
 {
-	int val = 255;
+	int val = 0;
 	int reuseaddr = 0;
 /*
     // struct msghdr :
@@ -18,7 +18,10 @@ void init_socket(void)
     socklen_t    msg_controllen  ancillary data buffer len
     int        msg_flags       flags on received message
 */
-
+	if (avg.options & F_TTL)
+		val = avg.ttl;
+	else
+		val = D_TTL;
 	if (avg.sock < 0)
 	{
 		printf("error getting the socket.\n");
