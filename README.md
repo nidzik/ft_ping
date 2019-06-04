@@ -5,10 +5,10 @@ Send ICMP ECHO_REQUEST packets to network hosts.
 # Synopsis
 usage : ft_ping [-fmtci] <hostname>
 ```
-	-f 			Flood ping.  Outputs packets as fast as they come back.
-	-m ttl  	Set the IP Time To Live for outgoing packets.
+	-f			Flood ping.  Outputs packets as fast as they come back.
+	-m ttl		Set the IP Time To Live for outgoing packets.
 	-t timeout	Specify a timeout, in seconds, before ping exits regardless of
-	  	 		how many packets have been received.
+				how many packets have been received.
 	-c count 	Stop after sending (and receiving) count ECHO_RESPONSE packets.
 	-i wait		Wait wait seconds between sending each packet.	
 ```
