@@ -1,5 +1,4 @@
 #include <sys/prctl.h>
-#include <sys/capability.h>
 
 #include "ft_ping.h"
 

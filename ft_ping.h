@@ -17,7 +17,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <sys/prctl.h>
-#include <sys/capability.h>
 
 #define F_FLOOD     0x001
 #define F_MARK      0x002
